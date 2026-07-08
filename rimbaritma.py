@@ -62,6 +62,11 @@ running = True
 completed_levels = set()
 highest_unlocked_level = 1
 
+# Gender karakter yang sedang aktif.
+# male   -> memakai kesatria_attack1.png - kesatria_attack6.png
+# female -> memakai kesatria_perempuan_attack1.png - kesatria_perempuan_attack6.png
+current_player_gender = "male"
+
 
 # ==========================================
 # FUNGSI BANTUAN
@@ -533,7 +538,7 @@ class MainMenu:
         self.message_timer = 0
 
     def start_new_game(self):
-        global current_state, completed_levels, highest_unlocked_level
+        global current_state, completed_levels, highest_unlocked_level, current_player_gender
 
         nickname = self.nickname_text.strip()
         password = self.password_text.strip()
@@ -545,6 +550,7 @@ class MainMenu:
 
         completed_levels = set()
         highest_unlocked_level = 1
+        current_player_gender = self.selected_gender
 
         self.save_game_data(nickname, password, self.selected_gender)
 
@@ -553,7 +559,7 @@ class MainMenu:
         current_state = STATE_CUTSCENE
 
     def load_game(self):
-        global current_state, completed_levels, highest_unlocked_level
+        global current_state, completed_levels, highest_unlocked_level, current_player_gender
 
         nickname = self.nickname_text.strip()
         password = self.password_text.strip()
@@ -582,6 +588,10 @@ class MainMenu:
 
             completed_levels = set(data.get("completed_levels", []))
             highest_unlocked_level = int(data.get("highest_unlocked_level", 1))
+            current_player_gender = data.get("gender", "male")
+
+            if current_player_gender not in ["male", "female"]:
+                current_player_gender = "male"
 
             current_state = STATE_MAP
 
@@ -1093,67 +1103,64 @@ class CombatScene:
         self.ground_y = 610
         self.current_level = {"id": 1, "name": "Level 1 - Hutan Awal"}
 
-        try:
-            bg_original = pygame.image.load(asset_path("combat_bg.png")).convert_alpha()
-            bg_cropped = crop_transparent_or_uniform_border(bg_original, tolerance=14)
-            self.arena_bg = cover_background(bg_cropped, self.arena_width, SCREEN_HEIGHT)
-            self.bg_loaded = True
-        except Exception:
-            self.bg_loaded = False
+        # Background arena akan mengikuti level:
+        # Tutorial / Level 1 -> bg1.png
+        # Level 2           -> bg2.png
+        # Level 3           -> bg3.png
+        # Level 4           -> bg4.png
+        # Level 5           -> bg5.png
+        self.arena_bg = None
+        self.bg_loaded = False
+        self.load_arena_background(1)
 
         # ==========================================
         # SPRITE PLAYER
         # ==========================================
-        self.player_idle_image, self.player_width, self.player_height = try_load_sprite("kesatria_idle.png", 170)
-
-        if self.player_idle_image is None:
-            self.player_idle_image, self.player_width, self.player_height = try_load_sprite("kesatria.png", 170)
-
-        self.image_loaded = self.player_idle_image is not None
-
-        if not self.image_loaded:
-            self.player_width = 90
-            self.player_height = 170
+        # Sprite karakter akan mengikuti gender yang dipilih saat NEW PLAYER.
+        # male   -> kesatria_attack1.png - kesatria_attack6.png
+        # female -> kesatria_perempuan_attack1.png - kesatria_perempuan_attack6.png
+        self.player_gender = current_player_gender
+        self.player_idle_image = None
+        self.player_width = 90
+        self.player_height = 170
+        self.image_loaded = False
 
         self.player_attack_frames = []
-
-        for i in range(1, 6):
-            frame, _, _ = try_load_sprite(f"kesatria_attack{i}.png", 170)
-            if frame is not None:
-                self.player_attack_frames.append(frame)
-
-        self.player_attack_loaded = len(self.player_attack_frames) > 0
+        self.player_attack_loaded = False
 
         self.stun_frames = []
-
-        stun_file_groups = [
-            ["kesatria_stun1.png", "kesatria_stun_1.png"],
-            ["kesatria_stun2.png", "kesatria_stun_2.png"],
-            ["kesatria_stun3.png", "kesatria_stun_3.png"],
-        ]
-
-        for group in stun_file_groups:
-            try:
-                stun_image, _, _ = load_first_existing_sprite(group, 170)
-                self.stun_frames.append(stun_image)
-            except Exception:
-                pass
-
-        self.stun_image_loaded = len(self.stun_frames) > 0
+        self.stun_image_loaded = False
         self.stun_frame_index = 0
         self.stun_animation_timer = 0
         self.stun_animation_speed = 10
 
-        # ==========================================
-        # SPRITE MONSTER
-        # ==========================================
-        self.enemy_idle_image, self.enemy_width, self.enemy_height = try_load_sprite("monster_idle.png", 120)
+        self.load_player_character_sprites(current_player_gender)
 
-        if self.enemy_idle_image is None:
-            self.enemy_idle_image, self.enemy_width, self.enemy_height = try_load_sprite("monster_slime.png", 120)
+        # ==========================================
+        # SPRITE MONSTER SLIME
+        # ==========================================
+        # Sprite slime baru:
+        # monsterslime_attack1.png - monsterslime_attack7.png
+        #
+        # Saat idle/default, game memakai monsterslime_attack1.png.
+        # Saat menyerang, game memainkan frame 1 sampai 7.
+        self.enemy_idle_image = None
+        self.enemy_width = 120
+        self.enemy_height = 120
 
-        if self.enemy_idle_image is None:
-            self.enemy_idle_image, self.enemy_width, self.enemy_height = try_load_sprite("monster_attack1.png", 120)
+        slime_idle_candidates = [
+            "monsterslime_attack1.png",
+            "monster_idle.png",
+            "monster_slime.png",
+            "monster_attack1.png",
+        ]
+
+        for filename in slime_idle_candidates:
+            target_height = 130 if filename.startswith("monsterslime") else 120
+            self.enemy_idle_image, self.enemy_width, self.enemy_height = try_load_sprite(filename, target_height)
+
+            if self.enemy_idle_image is not None:
+                break
 
         self.enemy_image_loaded = self.enemy_idle_image is not None
 
@@ -1163,12 +1170,29 @@ class CombatScene:
 
         self.enemy_attack_frames = []
 
-        for i in range(1, 5):
-            frame, _, _ = try_load_sprite(f"monster_attack{i}.png", 120)
+        # Prioritas utama: animasi slime baru 7 frame.
+        for i in range(1, 8):
+            frame, _, _ = try_load_sprite(f"monsterslime_attack{i}.png", 130)
+
             if frame is not None:
                 self.enemy_attack_frames.append(frame)
 
+        # Fallback: animasi monster lama 4 frame jika asset baru belum lengkap/tidak ada.
+        if len(self.enemy_attack_frames) == 0:
+            for i in range(1, 5):
+                frame, _, _ = try_load_sprite(f"monster_attack{i}.png", 120)
+
+                if frame is not None:
+                    self.enemy_attack_frames.append(frame)
+
         self.enemy_attack_loaded = len(self.enemy_attack_frames) > 0
+
+        # Kalau idle tidak ditemukan tetapi frame attack ada, pakai frame pertama sebagai idle.
+        if self.enemy_idle_image is None and self.enemy_attack_loaded:
+            self.enemy_idle_image = self.enemy_attack_frames[0]
+            self.enemy_width = self.enemy_idle_image.get_width()
+            self.enemy_height = self.enemy_idle_image.get_height()
+            self.enemy_image_loaded = True
 
         # ==========================================
         # POSISI KARAKTER
@@ -1235,11 +1259,142 @@ class CombatScene:
         self.enemy_attack_damage_done = False
         self.pending_enemy_damage = 0
 
+        # Jika True, pertarungan ini adalah tutorial awal,
+        # bukan level utama di map.
+        self.is_tutorial = False
+
+    def load_arena_background(self, level_id=1):
+        # Background battle mengikuti ID level.
+        # Simpan file dengan nama bg1.png, bg2.png, bg3.png, bg4.png, bg5.png
+        # di folder asset/ atau asset/images/.
+        candidates = [
+            f"bg{level_id}.png",
+            "combat_bg.png",
+        ]
+
+        self.arena_bg = None
+        self.bg_loaded = False
+
+        for filename in candidates:
+            try:
+                bg_original = pygame.image.load(asset_path(filename)).convert_alpha()
+                bg_cropped = crop_transparent_or_uniform_border(bg_original, tolerance=14)
+                self.arena_bg = cover_background(bg_cropped, self.arena_width, SCREEN_HEIGHT)
+                self.bg_loaded = True
+                return
+            except Exception:
+                pass
+
+    def load_player_character_sprites(self, gender="male"):
+        # Fungsi ini dipanggil saat combat dimulai agar sprite player
+        # selalu sesuai dengan gender akun yang dipilih.
+        self.player_gender = gender
+
+        if gender == "female":
+            idle_candidates = [
+                "kesatria_perempuan_attack1.png",
+                "kesatria_perempuan_idle.png",
+                "kesatria_perempuan.png",
+            ]
+
+            attack_prefix = "kesatria_perempuan_attack"
+
+            stun_file_groups = [
+                ["kesatriaperempuan_stun1.png", "kesatria_perempuan_stun1.png", "kesatria_perempuan_stun_1.png"],
+                ["kesatriaperempuan_stun2.png", "kesatria_perempuan_stun2.png", "kesatria_perempuan_stun_2.png"],
+                ["kesatriaperempuan_stun3.png", "kesatria_perempuan_stun3.png", "kesatria_perempuan_stun_3.png"],
+                ["kesatriaperempuan_stun4.png", "kesatria_perempuan_stun4.png", "kesatria_perempuan_stun_4.png"],
+                ["kesatriaperempuan_stun5.png", "kesatria_perempuan_stun5.png", "kesatria_perempuan_stun_5.png"],
+            ]
+
+        else:
+            idle_candidates = [
+                "kesatria_attack1.png",
+                "kesatria_idle.png",
+                "kesatria.png",
+            ]
+
+            attack_prefix = "kesatria_attack"
+
+            stun_file_groups = [
+                ["kesatria_stun1.png", "kesatria_stun_1.png"],
+                ["kesatria_stun2.png", "kesatria_stun_2.png"],
+                ["kesatria_stun3.png", "kesatria_stun_3.png"],
+                ["kesatria_stun4.png", "kesatria_stun_4.png"],
+                ["kesatria_stun5.png", "kesatria_stun_5.png"],
+            ]
+
+        self.player_idle_image = None
+        self.player_width = 90
+        self.player_height = 170
+
+        for filename in idle_candidates:
+            self.player_idle_image, self.player_width, self.player_height = try_load_sprite(filename, 170)
+
+            if self.player_idle_image is not None:
+                break
+
+        self.image_loaded = self.player_idle_image is not None
+
+        if not self.image_loaded:
+            self.player_width = 90
+            self.player_height = 170
+
+        self.player_attack_frames = []
+
+        for i in range(1, 7):
+            frame, _, _ = try_load_sprite(f"{attack_prefix}{i}.png", 170)
+
+            if frame is not None:
+                self.player_attack_frames.append(frame)
+
+        # Kalau ada file attack yang belum lengkap, game tetap bisa jalan.
+        # Minimal memakai attack1 sebagai gambar diam.
+        # Catatan: attack1 sengaja diprioritaskan agar desain karakter baru langsung tampil.
+        self.player_attack_loaded = len(self.player_attack_frames) > 0
+
+        self.stun_frames = []
+
+        for group in stun_file_groups:
+            try:
+                stun_image, _, _ = load_first_existing_sprite(group, 170)
+                self.stun_frames.append(stun_image)
+            except Exception:
+                pass
+
+        # Kalau stun perempuan belum ada, pakai stun laki-laki jika tersedia.
+        if gender == "female" and len(self.stun_frames) == 0:
+            fallback_stun_groups = [
+                ["kesatria_stun1.png", "kesatria_stun_1.png"],
+                ["kesatria_stun2.png", "kesatria_stun_2.png"],
+                ["kesatria_stun3.png", "kesatria_stun_3.png"],
+                ["kesatria_stun4.png", "kesatria_stun_4.png"],
+                ["kesatria_stun5.png", "kesatria_stun_5.png"],
+            ]
+
+            for group in fallback_stun_groups:
+                try:
+                    stun_image, _, _ = load_first_existing_sprite(group, 170)
+                    self.stun_frames.append(stun_image)
+                except Exception:
+                    pass
+
+        self.stun_image_loaded = len(self.stun_frames) > 0
+        self.stun_frame_index = 0
+        self.stun_animation_timer = 0
+
+        # Posisi Y harus disesuaikan ulang karena tinggi sprite laki/perempuan bisa berbeda.
+        self.player_y = self.ground_y - self.player_height
+
     def start_level(self, level):
+        self.is_tutorial = False
+        self.load_player_character_sprites(current_player_gender)
         self.current_level = level
-        self.reset_combat()
 
         level_id = level["id"]
+        self.load_arena_background(level_id)
+
+        self.reset_combat()
 
         self.enemy_max_hp = 100 + ((level_id - 1) * 25)
         self.enemy_hp = self.enemy_max_hp
@@ -1257,6 +1412,25 @@ class CombatScene:
             self.target_code = 'if True:'
         elif level_id == 5:
             self.target_code = 'class Hero:'
+
+    def start_tutorial(self):
+        self.load_player_character_sprites(current_player_gender)
+        self.load_arena_background(1)
+
+        # Match tutorial dibuat sama seperti Level 1:
+        # 5 monster, target kode print("Serang"), HP dan damage level 1.
+        self.is_tutorial = True
+        self.current_level = {"id": 1, "name": "Tutorial Awal - Hutan Latihan"}
+
+        self.enemy_max_hp = 100
+        self.enemy_hp = self.enemy_max_hp
+
+        self.xp_reward = 0
+        self.gold_reward = 0
+
+        self.target_code = 'print("Serang")'
+        self.reset_combat()
+        self.feedback_text = "Tutorial dimulai! Monster 1 muncul!"
 
     def reset_combat(self):
         self.player_max_hp = 100
@@ -1420,9 +1594,13 @@ class CombatScene:
             if self.current_monster_index < self.total_monsters:
                 self.prepare_next_monster()
             else:
-                self.mark_level_completed()
-                self.is_victory = True
-                self.feedback_text = "Semua monster kalah! Tekan ENTER."
+                if self.is_tutorial:
+                    self.is_victory = True
+                    self.feedback_text = "Tutorial selesai! Kamu mendapatkan Map Rimba Ritma."
+                else:
+                    self.mark_level_completed()
+                    self.is_victory = True
+                    self.feedback_text = "Semua monster kalah! Tekan ENTER."
         else:
             self.feedback_text = "Serangan berhasil!"
             self.is_enemy_turn = True
@@ -1441,12 +1619,15 @@ class CombatScene:
 
         self.enemy_attack_timer += 1
 
-        if self.enemy_attack_index in [1, 2]:
+        # Untuk animasi slime 7 frame, monster bergerak sedikit ke arah player
+        # di bagian tengah animasi, lalu kembali ke posisi awal.
+        if self.enemy_attack_index in [1, 2, 3, 4]:
             self.enemy_x = self.enemy_start_x - 28
         else:
             self.enemy_x = self.enemy_start_x
 
-        damage_frame = min(2, frame_count - 1)
+        # Damage diberikan di sekitar frame tengah animasi.
+        damage_frame = min(3, frame_count - 1)
 
         if self.enemy_attack_index >= damage_frame and not self.enemy_attack_damage_done:
             self.apply_enemy_damage()
@@ -1520,7 +1701,10 @@ class CombatScene:
             for event in events:
                 if event.type == pygame.KEYDOWN:
                     if event.key == pygame.K_RETURN or event.key == pygame.K_SPACE:
-                        current_state = STATE_MAP
+                        if self.is_tutorial:
+                            self.start_tutorial()
+                        else:
+                            current_state = STATE_MAP
             return
 
         if self.is_enemy_turn and self.enemy_turn_delay > 0:
@@ -1584,6 +1768,13 @@ class CombatScene:
             pygame.draw.rect(screen, GREEN, self.arena_rect)
 
         pygame.draw.rect(screen, BLACK, self.arena_rect, 4)
+
+        # Label kecil nama level di arena.
+        level_label = self.current_level.get("name", "Level")
+        label_surface = pygame.Surface((360, 36), pygame.SRCALPHA)
+        label_surface.fill((0, 0, 0, 120))
+        screen.blit(label_surface, (18, 18))
+        draw_text(level_label, 18, 32, 27, WHITE)
 
     def get_current_player_sprite(self):
         if self.is_player_attacking and self.player_attack_loaded:
@@ -1723,10 +1914,16 @@ class CombatScene:
         pygame.draw.rect(screen, (236, 240, 241), npc_dialog_rect, border_radius=6)
         pygame.draw.rect(screen, BLACK, npc_dialog_rect, 3, border_radius=6)
 
-        draw_text("NPC Guru:", 22, self.arena_width + 30, 40, BLACK)
-        draw_text("Ketik kode untuk", 18, self.arena_width + 30, 78, BLACK)
-        draw_text("menyerang:", 18, self.arena_width + 30, 108, BLACK)
-        draw_text(self.target_code, 18, self.arena_width + 30, 132, GREEN)
+        if self.is_tutorial:
+            draw_text("Guru Huma:", 22, self.arena_width + 30, 40, BLACK)
+            draw_text("Latihan pertama:", 18, self.arena_width + 30, 78, BLACK)
+            draw_text("ketik kode serangan", 18, self.arena_width + 30, 108, BLACK)
+            draw_text(self.target_code, 18, self.arena_width + 30, 132, GREEN)
+        else:
+            draw_text("NPC Guru:", 22, self.arena_width + 30, 40, BLACK)
+            draw_text("Ketik kode untuk", 18, self.arena_width + 30, 78, BLACK)
+            draw_text("menyerang:", 18, self.arena_width + 30, 108, BLACK)
+            draw_text(self.target_code, 18, self.arena_width + 30, 132, GREEN)
 
         if self.is_stunned:
             draw_text("STATUS: STUN", 18, self.arena_width + 245, 132, RED)
@@ -1781,37 +1978,64 @@ class CombatScene:
             overlay.fill(BLACK)
             screen.blit(overlay, (0, 0))
 
-            popup_rect = pygame.Rect(0, 0, 580, 250)
+            popup_rect = pygame.Rect(0, 0, 610, 270)
             popup_rect.center = (SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2)
 
             pygame.draw.rect(screen, WOOD_COLOR, popup_rect, border_radius=15)
             pygame.draw.rect(screen, BLACK, popup_rect, 5, border_radius=15)
 
-            draw_text("ANDA MENANG!", 42, SCREEN_WIDTH // 2, popup_rect.y + 45, WHITE, center=True)
-            draw_text(
-                f"Semua {self.total_monsters} monster pada level ini berhasil dikalahkan.",
-                22,
-                SCREEN_WIDTH // 2,
-                popup_rect.y + 102,
-                BLACK,
-                center=True
-            )
-            draw_text(
-                f"+{self.xp_reward} XP   +{self.gold_reward} Gold",
-                24,
-                SCREEN_WIDTH // 2,
-                popup_rect.y + 145,
-                YELLOW,
-                center=True
-            )
-            draw_text(
-                "Tekan ENTER untuk kembali ke peta",
-                18,
-                SCREEN_WIDTH // 2,
-                popup_rect.y + 200,
-                WHITE,
-                center=True
-            )
+            if self.is_tutorial:
+                draw_text("TUTORIAL SELESAI!", 40, SCREEN_WIDTH // 2, popup_rect.y + 42, WHITE, center=True)
+                draw_text(
+                    "Kamu berhasil mengalahkan 5 monster latihan.",
+                    22,
+                    SCREEN_WIDTH // 2,
+                    popup_rect.y + 98,
+                    BLACK,
+                    center=True
+                )
+                draw_text(
+                    "Kamu mendapatkan: MAP RIMBA RITMA",
+                    24,
+                    SCREEN_WIDTH // 2,
+                    popup_rect.y + 145,
+                    YELLOW,
+                    center=True
+                )
+                draw_text(
+                    "Tekan ENTER untuk membuka peta",
+                    18,
+                    SCREEN_WIDTH // 2,
+                    popup_rect.y + 210,
+                    WHITE,
+                    center=True
+                )
+            else:
+                draw_text("ANDA MENANG!", 42, SCREEN_WIDTH // 2, popup_rect.y + 45, WHITE, center=True)
+                draw_text(
+                    f"Semua {self.total_monsters} monster pada level ini berhasil dikalahkan.",
+                    22,
+                    SCREEN_WIDTH // 2,
+                    popup_rect.y + 102,
+                    BLACK,
+                    center=True
+                )
+                draw_text(
+                    f"+{self.xp_reward} XP   +{self.gold_reward} Gold",
+                    24,
+                    SCREEN_WIDTH // 2,
+                    popup_rect.y + 145,
+                    YELLOW,
+                    center=True
+                )
+                draw_text(
+                    "Tekan ENTER untuk kembali ke peta",
+                    18,
+                    SCREEN_WIDTH // 2,
+                    popup_rect.y + 210,
+                    WHITE,
+                    center=True
+                )
 
     def draw_game_over_popup(self):
         if self.is_game_over:
@@ -1896,6 +2120,18 @@ class CutsceneScene:
                 '"Sekarang, bersiaplah untuk latihan pertamamu."',
                 '"Petualanganmu di Rimba Ritma dimulai sekarang!"'
             ],
+            [
+                '"Jika ingin kembali ke duniamu, kamu harus memahami dasar-dasar coding."',
+                '"Namun jangan takut, aku akan membimbingmu dari awal."'
+            ],
+            [
+                '"Sekarang kita akan memulai latihan pertamamu."',
+                '"Kamu akan belajar menyerang monster menggunakan sintaks Python."'
+            ],
+            [
+                '"Bersiaplah! Latihan pertama akan segera dimulai."',
+                '"Tunjukkan bahwa kamu bisa menjadi penjelajah hebat di Rimba Ritma!"'
+            ],
         ]
 
         self.dialog_line = 0
@@ -1906,7 +2142,7 @@ class CutsceneScene:
     def load_cutscene_frames(self, prefix):
         frames = []
 
-        for i in range(1, 11):
+        for i in range(1, 14):
             filename = f"{prefix}{i}.png"
 
             try:
@@ -1951,7 +2187,8 @@ class CutsceneScene:
             self.is_fading_in = True
 
             if self.current_index >= len(self.frames):
-                current_state = STATE_MAP
+                combat_scene.start_tutorial()
+                current_state = STATE_COMBAT
 
     def update(self, events):
         global current_state
@@ -2008,8 +2245,8 @@ class CutsceneScene:
         else:
             screen.fill(DARK)
             draw_text("Cutscene belum ditemukan.", 28, SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2, WHITE, center=True)
-            draw_text("Pastikan file laki1-laki10 atau perempuan1-perempuan10 ada di folder asset.", 20, SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 42, WHITE, center=True)
-            draw_text("Tekan ENTER untuk lanjut ke map", 22, SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 84, WHITE, center=True)
+            draw_text("Pastikan file laki1-laki13 atau perempuan1-perempuan13 ada di folder asset.", 20, SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 42, WHITE, center=True)
+            draw_text("Tekan ENTER untuk lanjut ke tutorial", 22, SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 84, WHITE, center=True)
 
         self.draw_dialog_box()
         self.draw_scene_number()
